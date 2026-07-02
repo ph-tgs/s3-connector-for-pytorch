@@ -37,8 +37,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Python 3.8 is EOL (Oct 2024) and cibuildwheel 3.x (which we need for
+        # cp314) no longer builds it, so the fork ships cp39-cp314.
         python:
-          - cp38
           - cp39
           - cp310
           - cp311

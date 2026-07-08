@@ -1,0 +1,205 @@
+name: Fork Release Wheels
+
+# Fork-only workflow. Builds installable wheels on free GitHub-hosted runners
+# (no AWS/CodeBuild/S3 dependencies, no integration tests) and publishes them as
+# assets on a GitHub Release of this fork, so others can `pip install` them
+# without building the Rust extension locally.
+#
+# This lives on a fork-only branch and is intentionally NOT part of the upstream
+# pull request.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create (e.g. v1.5.0-requesterpays.1)"
+        required: true
+        type: string
+      prerelease:
+        description: "Mark the GitHub Release as a pre-release"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write   # required to create the Release and upload assets
+
+env:
+  # Skip cibuildwheel's test phase entirely: the repo's test-command runs S3
+  # integration/e2e suites that need AWS credentials and buckets we don't have
+  # on a fork.
+  CIBW_TEST_SKIP: "*"
+
+jobs:
+  build_wheels:
+    name: Wheel ${{ matrix.python }} ${{ matrix.builder.kind }} ${{ matrix.builder.arch }}
+    runs-on: ${{ matrix.builder.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Python 3.8 is EOL (Oct 2024) and cibuildwheel 3.x (which we need for
+        # cp314) no longer builds it, so the fork ships cp39-cp314.
+        python:
+          - cp39
+          - cp310
+          - cp311
+          - cp312
+          - cp313
+          - cp314
+        builder:
+          - runner: ubuntu-latest
+            kind: manylinux
+            arch: x86_64
+          - runner: macos-15-intel
+            kind: macosx
+            arch: x86_64
+          - runner: macos-14
+            kind: macosx
+            arch: arm64
+        # PyTorch dropped macOS x86_64 support at 3.13+, matching upstream.
+        exclude:
+          - python: cp313
+            builder:
+              runner: macos-15-intel
+              kind: macosx
+              arch: x86_64
+          - python: cp314
+            builder:
+              runner: macos-15-intel
+              kind: macosx
+              arch: x86_64
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Synthesize THIRD-PARTY-LICENSES
+        # Upstream generates this with the OSS Review Toolkit in a separate job.
+        # That's heavy and unnecessary for a fork build, so we stand in the
+        # project NOTICE. before-build (in pyproject.toml) copies this file into
+        # the package, so it must exist at the repo root before cibuildwheel runs.
+        shell: bash
+        run: |
+          if [ ! -f THIRD-PARTY-LICENSES ]; then
+            cp NOTICE THIRD-PARTY-LICENSES
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Build wheel
+        shell: bash
+        run: >
+          pipx run
+          cibuildwheel
+          "s3torchconnectorclient"
+          --output-dir "wheelhouse"
+          --only "${{ matrix.python }}-${{ matrix.builder.kind }}_${{ matrix.builder.arch }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.python }}-${{ matrix.builder.kind }}_${{ matrix.builder.arch }}
+          path: "./wheelhouse/*.whl"
+
+  build_python:
+    name: Pure-Python dist (${{ matrix.build_target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        build_target:
+          - s3torchconnector
+          - s3torchconnectorclient
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Copy license files into package
+        shell: bash
+        run: |
+          cp README.md "${{ matrix.build_target }}/"
+          cp LICENSE "${{ matrix.build_target }}/"
+          cp NOTICE "${{ matrix.build_target }}/THIRD-PARTY-LICENSES"
+          cp NOTICE "${{ matrix.build_target }}/"
+
+      - name: Build sdist (+ wheel for pure-Python s3torchconnector)
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip build
+          cd "${{ matrix.build_target }}"
+          if [ "${{ matrix.build_target }}" = "s3torchconnector" ]; then
+            # Pure Python: ship both sdist and a py3-none-any wheel.
+            python -m build
+          else
+            # Binary package: sdist only (installable wheels come from cibuildwheel).
+            python -m build --sdist
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.build_target }}
+          path: "./${{ matrix.build_target }}/dist/*"
+
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs:
+      - build_wheels
+      - build_python
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect release assets
+        shell: bash
+        run: |
+          mkdir -p dist
+          find artifacts -type f \( -name '*.whl' -o -name '*.tar.gz' \) -exec cp {} dist/ \;
+          echo "Release assets:"
+          ls -la dist
+
+      - name: Create / update Release and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        shell: bash
+        run: |
+          notes=$(cat <<'EOF'
+          Fork build of s3-connector-for-pytorch with Requester Pays support (#430).
+
+          These wheels are built on GitHub-hosted runners and are not affiliated with
+          AWS. Install directly from the release assets, for example:
+
+              pip install \
+                https://github.com/${{ github.repository }}/releases/download/TAGNAME/s3torchconnectorclient-<...>.whl \
+                https://github.com/${{ github.repository }}/releases/download/TAGNAME/s3torchconnector-<...>-py3-none-any.whl
+
+          Install both URLs together so pip uses this fork's client wheel instead of
+          pulling the official one from PyPI. Add --force-reinstall if you already
+          have s3torchconnector 1.5.0 installed.
+          EOF
+          )
+          notes="${notes//TAGNAME/$TAG}"
+
+          pre_flag=""
+          if [ "$PRERELEASE" = "true" ]; then pre_flag="--prerelease"; fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* \
+              --target "$GITHUB_SHA" \
+              --title "$TAG" \
+              --notes "$notes" \
+              $pre_flag
+          fi

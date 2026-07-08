@@ -1,0 +1,89 @@
+[package]
+name = "mountpoint-s3-crt-sys"
+# See `/doc/PUBLISHING_CRATES.md` to read how to publish new versions.
+version = "0.13.1"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/awslabs/mountpoint-s3"
+description = "Rust FFI bindings to the AWS Common Runtime for Mountpoint for Amazon S3."
+exclude = [
+    # Exclude large files/directories not required to build the CRT (e.g. tests, docs)
+    "crt/*/samples/**",
+    "crt/*/tests",
+    "!crt/aws-lc/tests/compiler_features_tests",
+    "!crt/s2n-tls/tests/features",
+    "crt/*/verification",
+    "crt/*/include/aws/testing",
+    "crt/**/docs",
+    "crt/aws-c-cal/ecdsa-fuzz-corpus/*",
+    "crt/aws-c-common/verification/*",
+    "crt/aws-c-common/AWSCRTAndroidTestRunner",
+    "crt/aws-c-s3/benchmarks",
+    "crt/aws-lc/**/*test*.go",
+    "crt/aws-lc/**/*test*.json",
+    "crt/aws-lc/**/*test*.py",
+    "crt/aws-lc/**/*test*.txt",
+    # All the text files in kat/ directory are 'known answer tests'
+    "crt/aws-lc/crypto/fipsmodule/ml_dsa/kat/*.txt",
+    "crt/aws-lc/crypto/**/*_test.cc",
+    "crt/aws-lc/crypto/cipher_extra/test/*",
+    "crt/aws-lc/crypto/fipsmodule/bn/test/*",
+    "crt/aws-lc/crypto/fipsmodule/policydocs/*",
+    "crt/aws-lc/crypto/fipsmodule/sha/testvectors/*",
+    # All the text files in kat/ directory are 'known answer tests'
+    "crt/aws-lc/crypto/fipsmodule/ml_kem/kat/*.txt",
+    # All the text files in kat/ directory are 'known answer tests'
+    "crt/aws-lc/crypto/kyber/kat/*.txt",
+    # All the text files in kat/ directory are 'known answer tests'
+    "crt/aws-lc/crypto/dilithium/kat/*.txt",
+    "crt/aws-lc/crypto/x509/test/*",
+    "crt/aws-lc/crypto/ocsp/test/*",
+    "crt/aws-lc/crypto/hpke/test-vectors.json",
+    "crt/aws-lc/fuzz/*",
+    "crt/aws-lc/generated-src/ios-*",
+    "crt/aws-lc/generated-src/mac-*",
+    "crt/aws-lc/generated-src/win-*",
+    "crt/aws-lc/generated-src/crypto_test_data.cc.tar.bz2",
+    "crt/aws-lc/ssl/ssl_test.cc",
+    "crt/aws-lc/ssl/test/*",
+    "crt/aws-lc/tests",
+    "crt/aws-lc/third_party/googletest/*",
+    "crt/aws-lc/third_party/wycheproof_testvectors/*",
+    "crt/aws-lc/tool",
+    "crt/aws-lc/util",
+    "!crt/aws-lc/util/fipstools/CMakeLists.txt",
+    "!crt/aws-lc/util/fipstools/acvp/modulewrapper/CMakeLists.txt",
+    "crt/s2n-tls/compliance/*",
+    "crt/s2n-tls/docker-images/*",
+    "crt/s2n-tls/nix/*",
+    "crt/s2n-tls/scram/SCRAM_paper.pdf",
+    "**/.github/**",
+    "**/*.jar",
+    "**/*.md",
+    "**/*.png",
+    "**/.gitignore",
+    "**/.clang-format",
+    "**/.clang-tidy",
+    "**/README",
+    "**/CONTRIBUTORS",
+    "**/format-check.py",
+    "**/format-check.sh",
+    "**/codebuild/**",
+    "**/codereview.settings",
+    "**/.builder/**",
+]
+
+[build-dependencies]
+bindgen = { version = "0.71.1", default-features = false, features = [
+    "runtime",
+] }
+cc = "1.2.10"
+cmake = "0.1.52"
+rustflags = "0.1.6"
+which = "7.0.1"
+
+[dependencies]
+libc = "0.2.169"
+
+[lib]
+doctest = false

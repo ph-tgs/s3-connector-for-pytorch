@@ -30,3 +30,11 @@ tracing-appender = "0.2.3"
 [features]
 default = ["extension-module"]
 extension-module = ["pyo3/extension-module"]
+
+# RELEASE-BRANCH ONLY (do not merge to requester-pays-support / upstream).
+# Vendored mountpoint-s3-crt-sys 0.13.1 with the aws-c-s3 Requester Pays copy fix
+# applied to crt/aws-c-s3/source/s3_request_messages.c (forwards x-amz-request-payer
+# onto the source-object HEAD the CopyObject meta-request issues). Version must stay
+# 0.13.1 to match the resolved graph, or cargo silently ignores the patch.
+[patch.crates-io]
+mountpoint-s3-crt-sys = { path = "../vendor/mountpoint-s3-crt-sys-0.13.1" }
